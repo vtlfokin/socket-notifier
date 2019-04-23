@@ -9,10 +9,12 @@ import io.ktor.auth.*
 import io.ktor.auth.jwt.jwt
 import io.ktor.features.ContentNegotiation
 import io.ktor.gson.gson
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.cio.websocket.*
 import io.ktor.request.receive
 import io.ktor.request.receiveText
 import io.ktor.response.respond
+import io.ktor.response.respondText
 import io.ktor.routing.get
 import io.ktor.routing.post
 import io.ktor.routing.routing
@@ -22,6 +24,8 @@ import io.ktor.websocket.WebSockets
 import io.ktor.websocket.webSocket
 import kotlinx.coroutines.ObsoleteCoroutinesApi
 import kotlinx.coroutines.channels.consumeEach
+import notifier.auth.administratorAuthenticate
+import notifier.auth.jwt.verifyToken
 import notifier.messenger.Message
 import notifier.messenger.MessageType
 import notifier.messenger.Messenger
@@ -44,46 +48,33 @@ fun main(args: Array<String>) {
         .sign(Algorithm.HMAC512("secret"))
     )
 
-    val verifier = JWT
-        .require(Algorithm.HMAC512("secret"))
-        .withIssuer("ktor")
-        .build()
-
     embeddedServer(Netty, 8000) {
         install(WebSockets)
-        install(Authentication) {
-            jwt {
-                verifier(verifier)
-                realm = "ktor.io"
-                validate { call ->
-                    call.payload.getClaim("id").asString()?.let {
-                        User(it)
-                    }
-                }
-            }
-        }
         install(ContentNegotiation) {
             gson {
                 setPrettyPrinting()
             }
         }
+        //#todo create custom authentication method
+        //https://github.com/ktorio/ktor/tree/master/ktor-features/ktor-auth/jvm/src/io/ktor/auth
 
         routing {
-            authenticate {
-                get("/") {
-                    val user = call.principal<User>()!!
-
-                    call.respond(user)
-                }
-            }
-
             post("/broadcast") {
-                val type = call.parameters["type"]
-                val content = call.receiveText()
+                try {
+                    call.administratorAuthenticate()
 
-                if (null != type && content.isNotEmpty()) {
-                    messenger.broadcast(
-                        Message(MessageType.valueOf(type.toUpperCase()), content)
+                    val type = call.parameters["type"]
+                    val content = call.receiveText()
+
+                    if (null != type && content.isNotEmpty()) {
+                        messenger.broadcast(
+                            Message(MessageType.valueOf(type.toUpperCase()), content)
+                        )
+                    }
+                } catch (exception: Exception) {
+                    call.respondText(
+                        text = exception.message ?: "",
+                        status = HttpStatusCode.BadRequest
                     )
                 }
             }
@@ -99,7 +90,7 @@ fun main(args: Array<String>) {
                         if (frame is Frame.Text) {
                             val incomeText = frame.readText()
                             if (null == user) {
-                                val jwt = verifier.verify(incomeText)
+                                val jwt = verifyToken(incomeText)
                                 user = User(jwt.getClaim("id").asString()).also {
                                     messenger.registerUserSession(it, this)
                                 }
@@ -111,7 +102,7 @@ fun main(args: Array<String>) {
                         CloseReason.Codes.VIOLATED_POLICY,
                         e.message ?: ""
                     ))
-                    // return because user is never added if failed authentication
+                    // return because user is has never added if fail authentication
                     return@webSocket
                 } finally {
                     user?.let {
