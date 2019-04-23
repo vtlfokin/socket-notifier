@@ -24,8 +24,8 @@ import io.ktor.websocket.WebSockets
 import io.ktor.websocket.webSocket
 import kotlinx.coroutines.ObsoleteCoroutinesApi
 import kotlinx.coroutines.channels.consumeEach
-import notifier.auth.administratorAuthenticate
 import notifier.auth.jwt.verifyToken
+import notifier.auth.token
 import notifier.messenger.Message
 import notifier.messenger.MessageType
 import notifier.messenger.Messenger
@@ -55,27 +55,32 @@ fun main(args: Array<String>) {
                 setPrettyPrinting()
             }
         }
-        //#todo create custom authentication method
-        //https://github.com/ktorio/ktor/tree/master/ktor-features/ktor-auth/jvm/src/io/ktor/auth
+        install(Authentication) {
+            token {
+                tokenField = "token"
+                token = "super_secret"
+            }
+        }
 
         routing {
-            post("/broadcast") {
-                try {
-                    call.administratorAuthenticate()
+            authenticate {
+                post("/broadcast") {
+                    try {
+                        val type = call.parameters["type"]
+                        val content = call.receiveText()
 
-                    val type = call.parameters["type"]
-                    val content = call.receiveText()
-
-                    if (null != type && content.isNotEmpty()) {
-                        messenger.broadcast(
-                            Message(MessageType.valueOf(type.toUpperCase()), content)
+                        if (null != type && content.isNotEmpty()) {
+                            messenger.broadcast(
+                                Message(MessageType.valueOf(type.toUpperCase()), content)
+                            )
+                        }
+                        call.respond(HttpStatusCode.OK)
+                    } catch (exception: Exception) {
+                        call.respondText(
+                            text = exception.message ?: "",
+                            status = HttpStatusCode.BadRequest
                         )
                     }
-                } catch (exception: Exception) {
-                    call.respondText(
-                        text = exception.message ?: "",
-                        status = HttpStatusCode.BadRequest
-                    )
                 }
             }
 
