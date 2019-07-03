@@ -8,7 +8,7 @@ import io.ktor.request.ApplicationRequest
 import io.ktor.response.respond
 
 /**
- * Represents a Basic authentication provider
+ * Represents a Simple token authentication provider
  * @param name is the name of the provider, or `null` for a default provider
  */
 class SimpleTokenAuthenticationProvider(name: String?) : AuthenticationProvider(name) {
